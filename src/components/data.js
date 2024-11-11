@@ -1786,4 +1786,7 @@ const geojsonObject = {
     }
   ]
 };
-export {geojsonObject};
+
+const MAPBOX_TOKEN ='pk.eyJ1IjoicGFjZTMwNjgiLCJhIjoiY20yY2U2Y3l4MHpndTJqb241NXNkbDUxZyJ9._x38TqLuw3fR-WBwyQzJow'; 
+
+export {geojsonObject, MAPBOX_TOKEN};

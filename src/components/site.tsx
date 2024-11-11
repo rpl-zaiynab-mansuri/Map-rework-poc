@@ -1,153 +1,247 @@
 "use client";
-
-import React, { useEffect, useRef, useState } from 'react';
-import 'ol/ol.css';
-import { Map, View, Overlay } from 'ol';
-import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer';
-import { OSM, Vector as VectorSource } from 'ol/source';
-import { Draw } from 'ol/interaction';
-import { fromLonLat } from 'ol/proj';
-import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style';
-import { getArea, getLength } from 'ol/sphere';
-import { Geometry, Polygon, LineString } from 'ol/geom';
-import GeoJSON from 'ol/format/GeoJSON';
-import { geojsonObject } from "./data";
+import React, { useEffect, useRef, useState } from "react";
+import "mapbox-gl/dist/mapbox-gl.css";
+import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
+import mapboxgl from "mapbox-gl";
+import MapboxDraw from "@mapbox/mapbox-gl-draw";
+import * as turf from "@turf/turf";
+import { geojsonObject, MAPBOX_TOKEN } from "./data";
 
 const MapWithMeasurements: React.FC = () => {
   const mapRef = useRef<HTMLDivElement | null>(null);
-  const [map, setMap] = useState<Map | null>(null);
-  const [drawType, setDrawType] = useState<'Polygon' | 'LineString'>('Polygon');
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const [tooltipOverlay, setTooltipOverlay] = useState<Overlay | null>(null);
-  const drawRef = useRef<Draw | null>(null); // Define drawRef here
+  const [map, setMap] = useState<mapboxgl.Map | null>(null);
+  const [draw, setDraw] = useState<MapboxDraw | null>(null);
+  const [selectedFeature, setSelectedFeature] =
+    useState<GeoJSON.Feature | null>(null);
+  const [measurements, setMeasurements] = useState({ area: "", length: "" });
 
-  // Function to add drawing interaction
-  const addDrawingInteraction = (drawType: 'Polygon' | 'LineString') => {
-    if (map && drawRef.current) {
-      map.removeInteraction(drawRef.current); // Remove the previous drawing interaction if it exists
+  const [newPolygonProperties, setNewPolygonProperties] = useState({
+    id: "",
+    type: "",
+    name: "",
+    fill: ""
+  });
+
+  useEffect(() => {
+    if (mapRef.current) {
+      mapboxgl.accessToken = MAPBOX_TOKEN;
+  
+      const map = new mapboxgl.Map({
+        container: mapRef.current,
+        style: "mapbox://styles/mapbox/satellite-streets-v12",
+        center: [142.3476209583, -34.5407412127],
+        zoom: 16,
+      });
+  
+      const draw = new MapboxDraw({
+        displayControlsDefault: false,
+        controls: {
+          polygon: true,
+          line_string: true,
+          trash: true,
+        },
+        modes: {
+          ...MapboxDraw.modes,
+          simple_select: MapboxDraw.modes.simple_select,
+          direct_select: MapboxDraw.modes.direct_select,
+          draw_polygon: MapboxDraw.modes.draw_polygon,
+          draw_line_string: MapboxDraw.modes.draw_line_string,
+        },
+      });
+  
+      map.addControl(draw);
+      setMap(map);
+      setDraw(draw);
+  
+      map.on("draw.create", handleDrawEvent);
+      map.on("draw.update", handleDrawEvent);
+      map.on("draw.delete", handleDrawDelete);
+      map.on("draw.selectionchange", handleDrawSelectionChange);
+  
+      map.on("load", () => {
+        if (geojsonObject) {
+          map.addSource("geojson", {
+            type: "geojson",
+            data: geojsonObject,
+          });
+  
+          geojsonObject.features.forEach((feature) => {
+            draw.add(feature);
+          });
+  
+          // Correct the layer source reference to "geojson" instead of "geojsonObject"
+          map.addLayer({
+            id: "polygon-layer",
+            type: "fill",
+            source: "geojson",  // Use "geojson" instead of "geojsonObject"
+            paint: {
+              "fill-color": [
+                "case",
+                ["has", "fill"],
+                ["get", "fill"],   // Get fill color from GeoJSON property
+                "#ffffff",         // Fallback color
+              ],
+              "fill-opacity": [
+                "case",
+                ["has", "fill-opacity"],
+                ["get", "fill-opacity"], // Get fill opacity from GeoJSON property
+                0.1,                    // Default opacity
+              ],
+            },
+          });
+        }
+      });
+  
+      return () => {
+        map.remove();
+      };
     }
+  }, []);
+  
 
-    const vectorSource = map?.getLayers().item(1).getSource(); // Assuming your second layer is the vector layer
-
-    const draw = new Draw({
-      source: vectorSource,
-      type: drawType,
-    });
-    map?.addInteraction(draw);
-    drawRef.current = draw;
-
-    draw.on('drawstart', () => {
-      if (tooltipRef.current) {
-        tooltipRef.current.innerHTML = '';
-        tooltipOverlay?.setPosition(undefined);
-      }
-    });
-
-    draw.on('drawend', (event) => {
-      const geometry = event.feature.getGeometry();
-      if (tooltipRef.current && tooltipOverlay) {
-        const measurementText = getMeasurement(geometry);
-        tooltipRef.current.innerHTML = measurementText;
-        tooltipOverlay.setPosition(geometry.getLastCoordinate());
-      }
+  const handleDrawEvent = (e: any) => {
+    if (!draw) return;
+    const features = draw.getAll().features || [];
+    features.forEach((feature) => {
+      saveFeatureToGeoJSON(feature);
     });
   };
 
-  useEffect(() => {
-    const vectorSource = new VectorSource({
-      features: new GeoJSON().readFeatures(geojsonObject, {
-        featureProjection: 'EPSG:3857',
-      }),
-    });
+  const handleDrawDelete = () => {
+    setSelectedFeature(null);
+    setMeasurements({ area: "", length: "" });
+  };
 
-    const vectorLayer = new VectorLayer({
-      source: vectorSource,
-      style: new Style({
-        fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }),
-        stroke: new Stroke({ color: '#ffcc33', width: 2 }),
-        image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#ffcc33' }) }),
-      }),
-    });
+  const handleDrawSelectionChange = (e: any) => {
+    const selectedFeatures = e.features;
 
-    const map = new Map({
-      target: mapRef.current!,
-      layers: [
-        new TileLayer({ source: new OSM() }),
-        vectorLayer,
-      ],
-      view: new View({
-        center: fromLonLat([142.34725515, -34.541585409999996]), zoom: 18,
-      }),
-    });
+    if (selectedFeatures.length === 0) {
+      setSelectedFeature(null);
+      setMeasurements({ area: "", length: "" });
+      return;
+    }
 
-    setMap(map);
+    const selected = selectedFeatures[0];
+    setSelectedFeature(selected);
+    createMeasurementsForFeature(selected);
+  };
 
-    const tooltipElement = document.createElement('div');
-    tooltipElement.className = 'tooltip';
-    tooltipElement.style.position = 'absolute';
-    tooltipElement.style.backgroundColor = 'white';
-    tooltipElement.style.padding = '5px';
-    tooltipElement.style.border = '1px solid black';
-    tooltipElement.style.borderRadius = '4px';
-    tooltipElement.style.pointerEvents = 'none';
+  const createMeasurementsForFeature = (feature: GeoJSON.Feature) => {
+    if (feature.geometry) {
+      const newMeasurements = calculateMeasurement(feature);
+      setMeasurements(newMeasurements);
+    }
+  };
 
-    const overlay = new Overlay({
-      element: tooltipElement,
-      offset: [15, 0],
-      positioning: 'center-left',
-    });
-    map.addOverlay(overlay);
-    tooltipRef.current = tooltipElement;
-    setTooltipOverlay(overlay);
+  const calculateMeasurement = (feature: GeoJSON.Feature) => {
+    if (!feature.geometry) return { area: "", length: "" };
 
-    // Add drawing interaction for initial drawType
-    addDrawingInteraction(drawType);
+    let area = "";
+    let length = "";
 
-    return () => {
-      map.setTarget(null);
+    if (feature.geometry.type === "Polygon") {
+      const coordinates = feature.geometry
+        .coordinates as turf.helpers.Position[][];
+      const turfPolygon = turf.polygon(coordinates);
+      area = (turf.area(turfPolygon) / 1_000_000).toFixed(2) + " km²"; // Convert to km²
+    }
+
+    if (feature.geometry.type === "LineString") {
+      const coordinates = feature.geometry
+        .coordinates as turf.helpers.Position[];
+      const turfLine = turf.lineString(coordinates);
+      length =
+        turf.length(turfLine, { units: "kilometers" }).toFixed(2) + " km"; // Convert to km
+    }
+
+    return { area, length };
+  };
+
+  const saveFeatureToGeoJSON = (feature: GeoJSON.Feature) => {
+    feature.properties = {
+      ...feature.properties,
+      fill: newPolygonProperties.fill,
+      id: newPolygonProperties.id,
+      type: newPolygonProperties.type,
+      name: newPolygonProperties.name,
     };
-  }, []); // Empty dependency array to only run once
 
-  useEffect(() => {
-    if (map && drawRef.current) {
-      addDrawingInteraction(drawType); // Update the drawing interaction when drawType changes
-    }
-  }, [drawType, map]);
+    if (map) {
+      const currentSource = map.getSource("geojson");
+      if (currentSource) {
+        const updatedData = {
+          type: "FeatureCollection",
+          features: [...(currentSource as any).getData().features, feature],
+        };
 
-  const getMeasurement = (geometry: Geometry): string => {
-    if (geometry instanceof Polygon) {
-      const area = getArea(geometry);
-      return area > 10000
-        ? `${(area / 1000000).toFixed(2)} km²`
-        : `${area.toFixed(2)} m²`;
-    } else if (geometry instanceof LineString) {
-      const length = getLength(geometry);
-      return length > 1000
-        ? `${(length / 1000).toFixed(2)} km`
-        : `${length.toFixed(2)} m`;
+        (currentSource as mapboxgl.GeoJSONSource).setData(updatedData);
+      }
     }
-    return '';
   };
 
   return (
     <div>
-      <div style={{ marginBottom: '10px', textAlign: 'center' }}>
-        <label htmlFor="drawType">Select Draw Type: </label>
-        <select
-          id="drawType"
-          value={drawType}
-          onChange={(e) => setDrawType(e.target.value as 'Polygon' | 'LineString')}
-        >
-          <option value="Polygon">Polygon</option>
-          <option value="LineString">Line</option>
-        </select>
+      {/* Map Container */}
+      <div ref={mapRef} style={{ width: "100%", height: "500px" }} />
+
+      {/* Form to Add New Polygon */}
+      <div>
+        <h4>New Polygon Properties</h4>
+        <input
+          type="text"
+          placeholder="ID"
+          onChange={(e) =>
+            setNewPolygonProperties({
+              ...newPolygonProperties,
+              id: e.target.value,
+            })
+          }
+        />
+        <input
+          type="text"
+          placeholder="Type"
+          onChange={(e) =>
+            setNewPolygonProperties({
+              ...newPolygonProperties,
+              type: e.target.value,
+            })
+          }
+        />
+        <input
+          type="text"
+          placeholder="Name"
+          onChange={(e) =>
+            setNewPolygonProperties({
+              ...newPolygonProperties,
+              name: e.target.value,
+            })
+          }
+        />
+        <input
+          type="color"
+          value={newPolygonProperties.fill}
+          onChange={(e) =>
+            setNewPolygonProperties({
+              ...newPolygonProperties,
+              fill: e.target.value,
+            })
+          }
+        />
+        <button onClick={() => draw?.changeMode("draw_polygon")}>
+          Add Polygon
+        </button>
       </div>
-      <div ref={mapRef} style={{ width: '100%', height: '500px' }}></div>
-      <style jsx>{`
-        .tooltip {
-          font-size: 10px; /* Adjusted font size */
-        }
-      `}</style>
+
+      {/* Measurements below the map */}
+      {selectedFeature && (
+        <div>
+          <h4>
+            Selected Feature: {selectedFeature.properties?.name || "Unnamed"}
+          </h4>
+          <p>{measurements.area ? `Area: ${measurements.area}` : ""}</p>
+          <p>{measurements.length ? `Length: ${measurements.length}` : ""}</p>
+        </div>
+      )}
     </div>
   );
 };
