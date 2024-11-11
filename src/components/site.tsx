@@ -69,23 +69,23 @@ const MapWithMeasurements: React.FC = () => {
             draw.add(feature);
           });
   
-          // Correct the layer source reference to "geojson" instead of "geojsonObject"
+       
           map.addLayer({
             id: "polygon-layer",
             type: "fill",
-            source: "geojson",  // Use "geojson" instead of "geojsonObject"
+            source: "geojson",  
             paint: {
               "fill-color": [
                 "case",
                 ["has", "fill"],
-                ["get", "fill"],   // Get fill color from GeoJSON property
-                "#ffffff",         // Fallback color
+                ["get", "fill"],    
+                "#ffffff",          
               ],
               "fill-opacity": [
                 "case",
                 ["has", "fill-opacity"],
-                ["get", "fill-opacity"], // Get fill opacity from GeoJSON property
-                0.1,                    // Default opacity
+                ["get", "fill-opacity"],  
+                0.1,                     
               ],
             },
           });
@@ -181,11 +181,9 @@ const MapWithMeasurements: React.FC = () => {
 
   return (
     <div>
-      {/* Map Container */}
-      <div ref={mapRef} style={{ width: "100%", height: "500px" }} />
+       <div ref={mapRef} style={{ width: "100%", height: "500px" }} />
 
-      {/* Form to Add New Polygon */}
-      <div>
+       <div>
         <h4>New Polygon Properties</h4>
         <input
           type="text"
@@ -232,8 +230,7 @@ const MapWithMeasurements: React.FC = () => {
         </button>
       </div>
 
-      {/* Measurements below the map */}
-      {selectedFeature && (
+       {selectedFeature && (
         <div>
           <h4>
             Selected Feature: {selectedFeature.properties?.name || "Unnamed"}
