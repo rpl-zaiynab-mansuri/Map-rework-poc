@@ -1,8 +1,5 @@
 # POC - Using Next.js & Tailwind CSS
 
-This is a free landing page & marketing website template for  startups and indie projects. Its built with Next.js & TailwindCSS.
- 
-
 
 ### 1\. Clone this Repository
 
