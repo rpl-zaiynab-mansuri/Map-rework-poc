@@ -1,10 +1,15 @@
-import SiteComponent from "@/components/site"; // Adjust this if Site component is named differently
+ 
+// Import `dynamic` from Next.js
+import dynamic from 'next/dynamic';
+import React from 'react';
 
-export default function SitePage() {
-  return (
-    <div>
-      <h1>Site Page</h1>
-      <SiteComponent />
-    </div>
-  );
-}
+// Dynamically import the component with SSR disabled
+const MapWithMeasurements = dynamic(() => import('@/components/site'), {
+  ssr: false,
+});
+
+const SitePage: React.FC = () => {
+  return <MapWithMeasurements />;
+};
+
+export default SitePage;
